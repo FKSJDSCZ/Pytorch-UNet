@@ -166,7 +166,7 @@ if __name__ == "__main__":
 	)
 
 	mask = predictor.predict(
-		image_path=f"data/{sys.argv[1]}.png",
-		# vizout_path=f"data/{sys.argv[1]}-pred.png",
-		maskout_path=f"data/{sys.argv[1]}-mask.png"
+		image_path=f"/home/ywh/RESTORATION/{sys.argv[1]}.png",
+		# vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
+		maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
 	)
