@@ -31,6 +31,7 @@ class LargeImagePredictor:
 	def __init__(
 			self,
 			model_path: str,
+			model_clases: int = 4,
 			patch_size: int = 512,
 			padding: int = 32,
 			device: str = None
@@ -39,16 +40,16 @@ class LargeImagePredictor:
 		self.padding = padding
 		self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
-		self.model = self._load_model(model_path)
+		self.model = self._load_model(model_path, model_clases)
 		self.model.to(self.device)
 		self.model.eval()
 
-	def _load_model(self, model_path):
+	def _load_model(self, model_path: str, model_classes: int):
 		state_dict = torch.load(model_path, map_location=self.device)
 		self.mask_values = state_dict.pop('mask_values')
 
 		from unet import UNet  # Import here to avoid circular import
-		model = UNet(n_channels=3, n_classes=4)
+		model = UNet(n_channels=3, n_classes=model_classes)
 		model.load_state_dict(state_dict)
 
 		print("Model loaded")
@@ -113,8 +114,9 @@ class LargeImagePredictor:
 		full_mask = np.zeros((h - 2 * self.padding, w - 2 * self.padding))
 
 		for pred, (y, x) in zip(predictions, coordinates):
-			if self.padding:
-				pred = pred[self.padding:-self.padding, self.padding:-self.padding]
+			if self.model.n_classes == 1:
+				pred = pred.squeeze(0)
+			pred = pred[self.padding:-self.padding, self.padding:-self.padding]
 			full_mask[y:y + self.patch_size, x:x + self.patch_size] = pred
 
 		print("Assemble finished")
@@ -160,13 +162,14 @@ class LargeImagePredictor:
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="checkpoints_256_1e-6/checkpoint_epoch3.pth",
+		model_path="/home/ywh/Pytorch-UNet/checkpoints_256_1e-6/checkpoint_epoch13.pth",
+		model_clases=1,
 		patch_size=256,
-		padding=0
+		padding=64
 	)
 
 	mask = predictor.predict(
-		image_path=f"data/{sys.argv[1]}.png",
-		# vizout_path=f"data/{sys.argv[1]}-pred.png",
-		maskout_path=f"data/{sys.argv[1]}-mask.png"
+		image_path=f"/home/ywh/RESTORATION/{sys.argv[1]}.png",
+		vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
+		# maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
 	)

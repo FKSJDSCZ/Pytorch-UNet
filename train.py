@@ -20,7 +20,7 @@ from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
 
 dir_img = Path('./data/patch256/train/images/')
-dir_mask = Path('./data/patch256/train/masks/')
+dir_mask = Path('./data/patch256/train/masks/severe/')
 dir_checkpoint = Path('./checkpoints_256_1e-6/')
 
 
@@ -177,7 +177,7 @@ def get_args():
     parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=True, help='Use mixed precision')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-    parser.add_argument('--classes', '-c', type=int, default=4, help='Number of classes')
+    parser.add_argument('--classes', '-c', type=int, default=1, help='Number of classes')
 
     return parser.parse_args()
 
