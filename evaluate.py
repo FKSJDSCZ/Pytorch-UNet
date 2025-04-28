@@ -49,26 +49,27 @@ if __name__ == '__main__':
 	logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 	dir_img = "data/patch256/test/images"
-	dir_mask = "data/patch256/test/masks/severe"
+	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		"checkpoints_256_1e-6/checkpoint_epoch10.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch11.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch12.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch13.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch14.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch15.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch16.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch17.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch18.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch41.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch42.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch43.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch44.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch45.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch46.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch47.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch48.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch49.pth",
+		"checkpoints_256_1e-6/checkpoint_epoch50.pth",
 	]
 	img_scale = 1.0
-	batch_size = 64
+	batch_size = 256
 
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model_list = list()
 
 	for path in model_paths:
-		model = UNet(n_channels=3, n_classes=1)
+		model = UNet(n_channels=3, n_classes=3)
 		model = model.to(memory_format=torch.channels_last)
 		state_dict = torch.load(path, map_location=device)
 		state_dict.pop("mask_values")

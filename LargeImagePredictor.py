@@ -116,7 +116,8 @@ class LargeImagePredictor:
 		for pred, (y, x) in zip(predictions, coordinates):
 			if self.model.n_classes == 1:
 				pred = pred.squeeze(0)
-			pred = pred[self.padding:-self.padding, self.padding:-self.padding]
+			if self.padding:
+				pred = pred[self.padding:-self.padding, self.padding:-self.padding]
 			full_mask[y:y + self.patch_size, x:x + self.patch_size] = pred
 
 		print("Assemble finished")
@@ -142,6 +143,7 @@ class LargeImagePredictor:
 				imgviz.asgray(image),
 				0.5,
 				["background", "severe", "medium", "slight"]
+				# ["ExposedMudLayers", "background", "Crack", "ExposedRockLayers", "Hole", "ProtectiveFilling", "WrongTextureInformation"]
 			)
 			Image.fromarray(mask_viz).save(vizout_path)
 
@@ -162,14 +164,14 @@ class LargeImagePredictor:
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="/home/ywh/Pytorch-UNet/checkpoints_256_1e-6/checkpoint_epoch13.pth",
-		model_clases=1,
+		model_path="/home/ywh/Pytorch-UNet/wandb/run-20250223_033308-8t21vpr3/files/checkpoint_epoch50.pth",
+		model_clases=4,
 		patch_size=256,
 		padding=64
 	)
 
 	mask = predictor.predict(
 		image_path=f"/home/ywh/RESTORATION/{sys.argv[1]}.png",
-		vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
-		# maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
+		# vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
+		maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
 	)
