@@ -56,12 +56,10 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 		tp = torch.zeros(n_classes, device=device)
 		fp = torch.zeros(n_classes, device=device)
 		fn = torch.zeros(n_classes, device=device)
-		dice_scores = torch.zeros(n_classes, device=device)
 	else:
 		tp = torch.tensor(0, device=device, dtype=torch.float)
 		fp = torch.tensor(0, device=device, dtype=torch.float)
 		fn = torch.tensor(0, device=device, dtype=torch.float)
-		dice_scores = torch.tensor(0, device=device, dtype=torch.float)
 	total_loss = 0
 
 	# Iterate over the validation set
@@ -99,16 +97,9 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 				tp += ((mask_pred == 1) & (mask_true == 1)).sum().float()
 				fp += ((mask_pred == 1) & (mask_true == 0)).sum().float()
 				fn += ((mask_pred == 0) & (mask_true == 1)).sum().float()
-
-				# Compute the Dice score
-				dice_scores += dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
 			else:
 				assert mask_true.min() >= 0 and mask_true.max() < n_classes, 'True mask indices should be in [0, n_classes]'
-
-				# Convert to one-hot format
-				mask_true_one_hot = F.one_hot(mask_true, n_classes).permute(0, 3, 1, 2).float()
 				mask_pred_argmax = mask_pred.argmax(dim=1)
-				mask_pred_one_hot = F.one_hot(mask_pred_argmax, n_classes).permute(0, 3, 1, 2).float()
 
 				# Calculate TP, FP, FN for each class
 				for c in range(n_classes):
@@ -116,19 +107,15 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 					fp[c] += ((mask_pred_argmax == c) & (mask_true != c)).sum().float()
 					fn[c] += ((mask_pred_argmax != c) & (mask_true == c)).sum().float()
 
-				# Compute the Dice score, including background
-				dice_score_batch = multiclass_dice_coeff(mask_pred_one_hot, mask_true_one_hot, reduce_batch_first=False)
-				dice_scores += dice_score_batch
-
 	# Calculate precision, recall, F1, IoU for each class
 	smooth = 1e-7
 	precision = tp / (tp + fp + smooth)
 	recall = tp / (tp + fn + smooth)
 	f1_score = 2 * precision * recall / (precision + recall + smooth)
 	iou = tp / (tp + fp + fn + smooth)
+	dice_score = 2 * tp / (2 * tp + fp + fn + smooth)
 
 	# Calculate average metrics
-	avg_dice = dice_scores / num_batches
 	avg_loss = total_loss / num_batches if criterion is not None else None
 
 	# Prepare results dictionary
@@ -136,8 +123,8 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 		'precision': precision,
 		'recall': recall,
 		'f1_score': f1_score,
-		'dice_scores': avg_dice,
-		'avg_dice': avg_dice.mean(),
+		'dice_scores': dice_score,
+		'avg_dice': dice_score.mean(),
 		'iou': iou,
 		'miou': iou.mean(),
 		'loss': avg_loss

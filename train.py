@@ -51,7 +51,7 @@ def train_model(
 	train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
 
 	# 3. Create data loaders
-	loader_args = dict(batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
+	loader_args = dict(batch_size=batch_size, num_workers=min(os.cpu_count(), 16), pin_memory=True)
 	train_loader = DataLoader(train_set, shuffle=True, **loader_args)
 	val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
 
@@ -59,7 +59,7 @@ def train_model(
 	experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
 	experiment.config.update(
 		dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
-		     val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp)
+			 val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp)
 	)
 
 	logging.info(f'''Starting training:
@@ -76,7 +76,7 @@ def train_model(
 
 	# 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
 	optimizer = optim.RMSprop(model.parameters(),
-	                          lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
+							  lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
 	scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=5)  # goal: maximize Dice score
 	grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
 	criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
@@ -201,7 +201,7 @@ def train_model(
 
 def get_args():
 	parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
-	parser.add_argument('--epochs', '-e', metavar='E', type=int, default=200, help='Number of epochs')
+	parser.add_argument('--epochs', '-e', metavar='E', type=int, default=50, help='Number of epochs')
 	parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=128, help='Batch size')
 	parser.add_argument('--learning-rate', '-l', metavar='LR', type=float, default=1e-6, help='Learning rate', dest='lr')
 	parser.add_argument('--load', '-f', type=str, default=False, help='Load model from a .pth file')
@@ -209,7 +209,7 @@ def get_args():
 	parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
 	parser.add_argument('--amp', action='store_true', default=True, help='Use mixed precision')
 	parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-	parser.add_argument('--classes', '-c', type=int, default=3, help='Number of classes')
+	parser.add_argument('--classes', '-c', type=int, default=4, help='Number of classes')
 
 	return parser.parse_args()
 
@@ -228,9 +228,9 @@ if __name__ == '__main__':
 	model = model.to(memory_format=torch.channels_last)
 
 	logging.info(f'Network:\n'
-	             f'\t{model.n_channels} input channels\n'
-	             f'\t{model.n_classes} output channels (classes)\n'
-	             f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling')
+				 f'\t{model.n_channels} input channels\n'
+				 f'\t{model.n_classes} output channels (classes)\n'
+				 f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling')
 
 	if args.load:
 		state_dict = torch.load(args.load, map_location=device)
@@ -252,8 +252,8 @@ if __name__ == '__main__':
 		)
 	except torch.cuda.OutOfMemoryError:
 		logging.error('Detected OutOfMemoryError! '
-		              'Enabling checkpointing to reduce memory usage, but this slows down training. '
-		              'Consider enabling AMP (--amp) for fast and memory efficient training')
+					  'Enabling checkpointing to reduce memory usage, but this slows down training. '
+					  'Consider enabling AMP (--amp) for fast and memory efficient training')
 		torch.cuda.empty_cache()
 		model.use_checkpointing()
 		train_model(
