@@ -126,10 +126,26 @@ def train_model(
 				})
 				pbar.set_postfix(**{'loss (batch)': loss.item()})
 
-			# Evaluation round
+				# Evaluate intermittently
+				division_step = (n_train // (5 * batch_size))
+				if division_step > 0 and global_step % division_step == 0:
+					val_score = evaluate(model, val_loader, device, amp)
+					scheduler.step(val_score)
+
+					logging.info('Validation Dice score: {}'.format(val_score))
+					try:
+						experiment.log({
+							'learning rate': optimizer.param_groups[0]['lr'],
+							'validation Dice': val_score,
+							'step': global_step,
+							'epoch': epoch,
+						})
+					except:
+						pass
+
+			# Final evaluation of the epoch
 			train_metrics = evaluate_metrics(model, train_loader, device, amp, criterion)
 			val_metrics = evaluate_metrics(model, val_loader, device, amp, criterion)
-			scheduler.step(val_metrics["avg_dice"])
 
 			log_data = {
 				'learning rate': optimizer.param_groups[0]['lr'],
