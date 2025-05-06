@@ -20,9 +20,9 @@ from unet import UNet
 from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
 
-dir_img = Path('./data/patch256/train/images/')
-dir_mask = Path('./data/patch256/train/masks/')
-dir_checkpoint = Path('./checkpoints_256_1e-6/')
+dir_img = "data/patch256/train/images"
+dir_mask = "data/patch256/train/masks"
+dir_checkpoint = "checkpoints_256_1e-6"
 
 
 def train_model(
@@ -38,12 +38,26 @@ def train_model(
 		weight_decay: float = 1e-8,
 		momentum: float = 0.999,
 		gradient_clipping: float = 1.0,
+		use_weighted_sampling: bool = False,
+		priority_list: list = None,
 ):
 	# 1. Create dataset
 	try:
-		dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
+		dataset = CarvanaDataset(
+			dir_img,
+			dir_mask,
+			img_scale,
+			use_weighted_sampling=use_weighted_sampling,
+			priority_list=priority_list
+		)
 	except (AssertionError, RuntimeError, IndexError):
-		dataset = BasicDataset(dir_img, dir_mask, img_scale)
+		dataset = BasicDataset(
+			dir_img,
+			dir_mask,
+			img_scale,
+			use_weighted_sampling=use_weighted_sampling,
+			priority_list=priority_list
+		)
 
 	# 2. Split into train / validation partitions
 	n_val = int(len(dataset) * val_percent)
@@ -52,14 +66,28 @@ def train_model(
 
 	# 3. Create data loaders
 	loader_args = dict(batch_size=batch_size, num_workers=min(os.cpu_count(), 16), pin_memory=True)
-	train_loader = DataLoader(train_set, shuffle=True, **loader_args)
+
+	# Use weighted sampler if enabled
+	if use_weighted_sampling and priority_list:
+		logging.info('Using weighted sampling with priority list: {}'.format(priority_list))
+		sampler = dataset.get_sampler()
+		if sampler is not None:
+			train_loader = DataLoader(train_set, sampler=sampler, **loader_args)
+			logging.info('Weighted sampler created successfully')
+		else:
+			logging.warning('Failed to create weighted sampler, falling back to random sampling')
+			train_loader = DataLoader(train_set, shuffle=True, **loader_args)
+	else:
+		train_loader = DataLoader(train_set, shuffle=True, **loader_args)
+
 	val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
 
 	# (Initialize logging)
 	experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
 	experiment.config.update(
 		dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
-			 val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp)
+		     val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp,
+		     use_weighted_sampling=use_weighted_sampling, priority_list=priority_list if priority_list else "None")
 	)
 
 	logging.info(f'''Starting training:
@@ -72,6 +100,8 @@ def train_model(
         Device:          {device.type}
         Images scaling:  {img_scale}
         Mixed Precision: {amp}
+        Weighted Sampling: {use_weighted_sampling}
+        Priority List:   {priority_list if priority_list else "None"}
     ''')
 
 	# 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
@@ -211,7 +241,7 @@ def train_model(
 			Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
 			state_dict = model.state_dict()
 			state_dict['mask_values'] = dataset.mask_values
-			torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
+			torch.save(state_dict, str(Path(dir_checkpoint) / 'checkpoint_epoch{}.pth'.format(epoch)))
 			logging.info(f'Checkpoint {epoch} saved!')
 
 
@@ -226,6 +256,8 @@ def get_args():
 	parser.add_argument('--amp', action='store_true', default=True, help='Use mixed precision')
 	parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
 	parser.add_argument('--classes', '-c', type=int, default=4, help='Number of classes')
+	parser.add_argument('--weighted-sampling', '-w', action='store_true', default=False, help='Use weighted sampling for imbalanced dataset')
+	parser.add_argument('--priority-list', '-p', type=str, default=None, help='Priority list for weighted sampling, format: "3,1,2,0"')
 
 	return parser.parse_args()
 
@@ -236,6 +268,18 @@ if __name__ == '__main__':
 	logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	logging.info(f'Using device {device}')
+
+	# Parse priority list if provided
+	priority_list = None
+	if args.priority_list is not None:
+		try:
+			priority_list = [int(x) for x in args.priority_list.split(',')]
+			assert len(priority_list) == args.classes, f"Priority list length ({len(priority_list)}) must match number of classes ({args.classes})"
+		except Exception as e:
+			logging.error(f"Error parsing priority list: {e}")
+			logging.error("Priority list should be in format '3,1,2,0'")
+			logging.error("Disabling weighted sampling")
+			args.weighted_sampling = False
 
 	# Change here to adapt to your data
 	# n_channels=3 for RGB images
@@ -264,7 +308,9 @@ if __name__ == '__main__':
 			device=device,
 			img_scale=args.scale,
 			val_percent=args.val / 100,
-			amp=args.amp
+			amp=args.amp,
+			use_weighted_sampling=args.weighted_sampling,
+			priority_list=priority_list,
 		)
 	except torch.cuda.OutOfMemoryError:
 		logging.error('Detected OutOfMemoryError! '
@@ -280,5 +326,7 @@ if __name__ == '__main__':
 			device=device,
 			img_scale=args.scale,
 			val_percent=args.val / 100,
-			amp=args.amp
+			amp=args.amp,
+			use_weighted_sampling=args.weighted_sampling,
+			priority_list=priority_list,
 		)
