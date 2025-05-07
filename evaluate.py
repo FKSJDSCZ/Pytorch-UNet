@@ -75,7 +75,7 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 			mask_pred = net(image)
 
 			# Calculate loss if criterion is provided
-			if criterion is not None:
+			if criterion:
 				if n_classes == 1:
 					loss = criterion(mask_pred.squeeze(1), mask_true.float())
 					loss += dice_loss(F.sigmoid(mask_pred.squeeze(1)), mask_true.float(), multiclass=False)
@@ -107,11 +107,10 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 					fp[c] += ((mask_pred_argmax == c) & (mask_true != c)).sum().float()
 					fn[c] += ((mask_pred_argmax != c) & (mask_true == c)).sum().float()
 
-	# Calculate precision, recall, F1, IoU for each class
+	# Calculate precision, recall, IoU for each class
 	smooth = 1e-7
 	precision = tp / (tp + fp + smooth)
 	recall = tp / (tp + fn + smooth)
-	f1_score = 2 * precision * recall / (precision + recall + smooth)
 	iou = tp / (tp + fp + fn + smooth)
 	dice_score = 2 * tp / (2 * tp + fp + fn + smooth)
 
@@ -122,7 +121,6 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 	results = {
 		'precision': precision,
 		'recall': recall,
-		'f1_score': f1_score,
 		'dice_scores': dice_score,
 		'avg_dice': dice_score.mean(),
 		'iou': iou,
