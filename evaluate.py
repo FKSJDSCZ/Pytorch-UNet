@@ -140,15 +140,15 @@ if __name__ == '__main__':
 	dir_img = "data/patch256/test/images"
 	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		"checkpoints_256_1e-6/checkpoint_epoch41.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch42.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch43.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch44.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch45.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch46.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch47.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch48.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch49.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch41.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch42.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch43.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch44.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch45.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch46.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch47.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch48.pth",
+		# "checkpoints_256_1e-6/checkpoint_epoch49.pth",
 		"checkpoints_256_1e-6/checkpoint_epoch50.pth",
 	]
 	img_scale = 1.0
@@ -158,7 +158,7 @@ if __name__ == '__main__':
 	model_list = list()
 
 	for path in model_paths:
-		model = UNet(n_channels=3, n_classes=3)
+		model = UNet(n_channels=3, n_classes=4)
 		model = model.to(memory_format=torch.channels_last)
 		state_dict = torch.load(path, map_location=device)
 		state_dict.pop("mask_values")
@@ -171,4 +171,4 @@ if __name__ == '__main__':
 
 	for i, model in enumerate(model_list):
 		val_score = evaluate(model, test_loader, device, amp=True)
-		logging.info(f"Model: {model_paths[i]}, validation Dice score: {val_score}")
+		logging.info(val_score)

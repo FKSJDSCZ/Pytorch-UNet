@@ -71,7 +71,7 @@ def train_model(
 	if use_weighted_sampling and priority_list:
 		logging.info('Using weighted sampling with priority list: {}'.format(priority_list))
 		sampler = dataset.get_sampler()
-		if sampler is not None:
+		if sampler:
 			train_loader = DataLoader(train_set, sampler=sampler, **loader_args)
 			logging.info('Weighted sampler created successfully')
 		else:
@@ -255,9 +255,9 @@ def get_args():
 	parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
 	parser.add_argument('--amp', action='store_true', default=True, help='Use mixed precision')
 	parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-	parser.add_argument('--classes', '-c', type=int, default=4, help='Number of classes')
-	parser.add_argument('--weighted-sampling', '-w', action='store_true', default=False, help='Use weighted sampling for imbalanced dataset')
-	parser.add_argument('--priority-list', '-p', type=str, default=None, help='Priority list for weighted sampling, format: "3,1,2,0"')
+	parser.add_argument('--classes', '-c', type=int, default=7, help='Number of classes')
+	parser.add_argument('--weighted-sampling', '-w', action='store_true', default=True, help='Use weighted sampling for imbalanced dataset')
+	parser.add_argument('--priority-list', '-p', type=str, default="2,4,6,5,3,0,1", help='Priority list for weighted sampling, format: "3,1,2,0"')
 
 	return parser.parse_args()
 
