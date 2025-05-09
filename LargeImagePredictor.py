@@ -32,6 +32,7 @@ class LargeImagePredictor:
 			self,
 			model_path: str,
 			model_clases: int = 4,
+			using_se: str | bool = False,
 			patch_size: int = 512,
 			padding: int = 32,
 			device: str = None
@@ -40,16 +41,16 @@ class LargeImagePredictor:
 		self.padding = padding
 		self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
-		self.model = self._load_model(model_path, model_clases)
+		self.model = self._load_model(model_path, model_clases, using_se)
 		self.model.to(self.device)
 		self.model.eval()
 
-	def _load_model(self, model_path: str, model_classes: int):
+	def _load_model(self, model_path: str, model_classes: int, using_se: str | bool):
 		state_dict = torch.load(model_path, map_location=self.device)
 		self.mask_values = state_dict.pop('mask_values')
 
 		from unet import UNet  # Import here to avoid circular import
-		model = UNet(n_channels=3, n_classes=model_classes)
+		model = UNet(3, model_classes, using_se)
 		model.load_state_dict(state_dict)
 
 		print("Model loaded")
@@ -155,8 +156,9 @@ class LargeImagePredictor:
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="/home/ywh/Pytorch-UNet/wandb/run-20250508_170935-ln2fumye/files/checkpoint_epoch500.pth",
+		model_path="/home/ywh/Pytorch-UNet/wandb/run-20250508_170703-68visrp4/files/checkpoint_epoch500.pth",
 		model_clases=4,
+		using_se='D',
 		patch_size=1024,
 		padding=128
 	)

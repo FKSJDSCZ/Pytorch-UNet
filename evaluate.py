@@ -12,42 +12,7 @@ from utils.data_loading import BasicDataset
 
 
 @torch.inference_mode()
-def evaluate(net, dataloader, device, amp):
-	net.eval()
-	num_val_batches = len(dataloader)
-	dice_score = 0
-
-	# iterate over the validation set
-	with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
-		for batch in tqdm(dataloader, total=num_val_batches, desc='Validation round', unit='batch', leave=False):
-			image, mask_true = batch['image'], batch['mask']
-
-			# move images and labels to correct device and type
-			image = image.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
-			mask_true = mask_true.to(device=device, dtype=torch.long)
-
-			# predict the mask
-			mask_pred = net(image)
-
-			if net.n_classes == 1:
-				assert mask_true.min() >= 0 and mask_true.max() <= 1, 'True mask indices should be in [0, 1]'
-				mask_pred = (F.sigmoid(mask_pred.squeeze(1)) > 0.5).float()
-				# compute the Dice score
-				dice_score += dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
-			else:
-				assert mask_true.min() >= 0 and mask_true.max() < net.n_classes, 'True mask indices should be in [0, n_classes]'
-				# convert to one-hot format
-				mask_true = F.one_hot(mask_true, net.n_classes).permute(0, 3, 1, 2).float()
-				mask_pred = F.one_hot(mask_pred.argmax(dim=1), net.n_classes).permute(0, 3, 1, 2).float()
-				# compute the Dice score, ignoring background
-				dice_score += multiclass_dice_coeff(mask_pred[:, 1:], mask_true[:, 1:], reduce_batch_first=False)
-
-	net.train()
-	return dice_score / max(num_val_batches, 1)
-
-
-@torch.inference_mode()
-def evaluate_metrics(net, dataloader, device, amp, criterion=None):
+def evaluate_metrics(net, dataloader, device, amp):
 	net.eval()
 	num_batches = len(dataloader)
 	n_classes = net.n_classes
@@ -61,7 +26,7 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 		tp = torch.tensor(0, device=device, dtype=torch.float)
 		fp = torch.tensor(0, device=device, dtype=torch.float)
 		fn = torch.tensor(0, device=device, dtype=torch.float)
-	total_loss = 0
+	dice_score = 0
 
 	# Iterate over the validation set
 	with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
@@ -75,24 +40,11 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 			# Predict the mask
 			mask_pred = net(image)
 
-			# Calculate loss if criterion is provided
-			if criterion:
-				if n_classes == 1:
-					loss = criterion(mask_pred.squeeze(1), mask_true.float())
-					loss += dice_loss(F.sigmoid(mask_pred.squeeze(1)), mask_true.float(), multiclass=False)
-				else:
-					loss = criterion(mask_pred, mask_true)
-					loss += dice_loss(
-						F.softmax(mask_pred, dim=1).float(),
-						F.one_hot(mask_true, n_classes).permute(0, 3, 1, 2).float(),
-						multiclass=True
-					)
-				total_loss += loss.item()
-
 			# Calculate metrics
 			if n_classes == 1:
 				assert mask_true.min() >= 0 and mask_true.max() <= 1, 'True mask indices should be in [0, 1]'
-				mask_pred = (F.sigmoid(mask_pred) > 0.5).float()
+				mask_pred = (F.sigmoid(mask_pred.squeeze(1)) > 0.5).float()
+				dice_score += dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
 
 				# Binary case
 				tp += ((mask_pred == 1) & (mask_true == 1)).sum().float()
@@ -100,33 +52,36 @@ def evaluate_metrics(net, dataloader, device, amp, criterion=None):
 				fn += ((mask_pred == 0) & (mask_true == 1)).sum().float()
 			else:
 				assert mask_true.min() >= 0 and mask_true.max() < n_classes, 'True mask indices should be in [0, n_classes]'
-				mask_pred_argmax = mask_pred.argmax(dim=1)
+				mask_pred = mask_pred.argmax(dim=1)
+
+				# Convert to one-hot format, then compute the Dice score ignoring background
+				dice_score += multiclass_dice_coeff(
+					F.one_hot(mask_pred, net.n_classes).permute(0, 3, 1, 2).float()[:, 1:],
+					F.one_hot(mask_true, net.n_classes).permute(0, 3, 1, 2).float()[:, 1:],
+					reduce_batch_first=False
+				)
 
 				# Calculate TP, FP, FN for each class
 				for c in range(n_classes):
-					tp[c] += ((mask_pred_argmax == c) & (mask_true == c)).sum().float()
-					fp[c] += ((mask_pred_argmax == c) & (mask_true != c)).sum().float()
-					fn[c] += ((mask_pred_argmax != c) & (mask_true == c)).sum().float()
+					tp[c] += ((mask_pred == c) & (mask_true == c)).sum().float()
+					fp[c] += ((mask_pred == c) & (mask_true != c)).sum().float()
+					fn[c] += ((mask_pred != c) & (mask_true == c)).sum().float()
 
 	# Calculate precision, recall, IoU for each class
 	smooth = 1e-7
 	precision = tp / (tp + fp + smooth)
 	recall = tp / (tp + fn + smooth)
 	iou = tp / (tp + fp + fn + smooth)
-	dice_score = 2 * tp / (2 * tp + fp + fn + smooth)
-
-	# Calculate average metrics
-	avg_loss = total_loss / num_batches if criterion is not None else None
+	f1_score = 2 * precision * recall / (precision + recall + smooth)
 
 	# Prepare results dictionary
 	results = {
 		'precision': precision,
 		'recall': recall,
-		'dice_scores': dice_score,
-		'avg_dice': dice_score.mean(),
 		'iou': iou,
+		'f1_score': f1_score,
+		'dice_score': dice_score / max(num_batches, 1),
 		'miou': iou.mean(),
-		'loss': avg_loss
 	}
 
 	net.train()
@@ -139,11 +94,10 @@ if __name__ == '__main__':
 	dir_img = "data/patch256/test/images"
 	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		"unetSE_checkpoints_256_1e-6/checkpoint_epoch300.pth",
-		"unetSE_checkpoints_256_1e-6/checkpoint_epoch500.pth",
+		"wandb/run-20250508_170703-68visrp4/files/checkpoint_epoch500.pth"
 	]
 	img_scale = 1.0
-	batch_size = 16
+	batch_size = 256
 
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model_list = list()
@@ -161,8 +115,8 @@ if __name__ == '__main__':
 	test_loader = DataLoader(dataset, shuffle=False, drop_last=True, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
 
 	for model_idx, model in enumerate(model_list):
-		test_metrics = evaluate_metrics(model, test_loader, device, True)
-		logging.info(f"Model {model_paths[model_idx]}: test dataset Dice: {test_metrics['avg_dice']}, MIoU: {test_metrics['miou']}")
+		test_metrics = evaluate_metrics(model, test_loader, device, True, torch.nn.CrossEntropyLoss() if model.n_classes > 1 else torch.nn.BCEWithLogitsLoss())
+		logging.info(f"Model {model_paths[model_idx]}: test dataset loss: {test_metrics['loss']}, Dice: {test_metrics['avg_dice']}, MIoU: {test_metrics['miou']}")
 		test_table = PrettyTable(["class\\score", "P", "R", "Dice", "IoU"])
 		for i in range(model.n_classes):
 			test_table.add_row(

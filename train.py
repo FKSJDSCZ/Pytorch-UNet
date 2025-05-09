@@ -17,18 +17,18 @@ from prettytable import PrettyTable
 from wandb.util import downsample
 
 import wandb
-from evaluate import evaluate, evaluate_metrics
+from evaluate import evaluate_metrics
 from unet import UNet
 from utils.data_loading import BasicDataset
 from utils.dice_score import dice_loss
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 train_image_dir = "data/patch256/train/images"
 train_mask_dir = "data/patch256/train/masks"
 val_image_dir = "data/patch256/val/images"
 val_mask_dir = "data/patch256/val/masks"
-checkpoint_dir = "unet_checkpoints_256_1e-6"
+checkpoint_dir = "unetSE_checkpoints"
 
 
 def train_model(model, config):
@@ -155,84 +155,66 @@ def train_model(model, config):
 				})
 				pbar.set_postfix(**{'loss (batch)': loss.item()})
 
-				# Evaluate intermittently
-				division_step = (len(train_dataset) // (5 * batch_size))
-				if division_step > 0 and global_step % division_step == 0:
-					val_score = evaluate(model, val_loader, device, amp)
-					scheduler.step(val_score)
+		# Final evaluation of the epoch
+		train_metrics = evaluate_metrics(model, train_loader, device, amp)
+		val_metrics = evaluate_metrics(model, val_loader, device, amp)
 
-					logging.info('Validation Dice score: {}'.format(val_score))
-					try:
-						experiment.log({
-							'learning rate': optimizer.param_groups[0]['lr'],
-							'validation Dice': val_score,
-							'step': global_step,
-							'epoch': epoch,
-						})
-					except:
-						pass
+		log_data = {
+			'learning rate': optimizer.param_groups[0]['lr'],
+			'epoch': epoch,
+			'step': global_step,
+			'train/dice': train_metrics['dice_score'],
+			'train/miou': train_metrics['miou'],
+		}
 
-			# Final evaluation of the epoch
-			train_metrics = evaluate_metrics(model, train_loader, device, amp, criterion)
-			val_metrics = evaluate_metrics(model, val_loader, device, amp, criterion)
+		for c in range(model.n_classes):
+			log_data[f'train/precision_class_{c}'] = train_metrics['precision'][c].item()
+			log_data[f'train/recall_class_{c}'] = train_metrics['recall'][c].item()
+			log_data[f'train/iou_class_{c}'] = train_metrics['iou'][c].item()
+			log_data[f'train/f1_class_{c}'] = train_metrics['f1_score'][c].item()
 
-			log_data = {
-				'learning rate': optimizer.param_groups[0]['lr'],
-				'epoch': epoch,
-				'step': global_step,
-				'train/loss': train_metrics['loss'],
-				'train/dice': train_metrics['avg_dice'],
-				'train/miou': train_metrics['miou'],
-			}
+		log_data.update({
+			'val/dice': val_metrics['dice_score'],
+			'val/miou': val_metrics['miou'],
+		})
 
-			for c in range(model.n_classes):
-				log_data[f'train/precision_class_{c}'] = train_metrics['precision'][c].item()
-				log_data[f'train/recall_class_{c}'] = train_metrics['recall'][c].item()
-				log_data[f'train/dice_class_{c}'] = train_metrics['dice_scores'][c].item()
-				log_data[f'train/iou_class_{c}'] = train_metrics['iou'][c].item()
+		for c in range(model.n_classes):
+			log_data[f'val/precision_class_{c}'] = val_metrics['precision'][c].item()
+			log_data[f'val/recall_class_{c}'] = val_metrics['recall'][c].item()
+			log_data[f'val/iou_class_{c}'] = val_metrics['iou'][c].item()
+			log_data[f'val/f1_class_{c}'] = val_metrics['f1_score'][c].item()
 
-			log_data.update({
-				'val/loss': val_metrics['loss'],
-				'val/dice': val_metrics['avg_dice'],
-				'val/miou': val_metrics['miou'],
-			})
+		experiment.log(log_data)
 
-			for c in range(model.n_classes):
-				log_data[f'val/precision_class_{c}'] = val_metrics['precision'][c].item()
-				log_data[f'val/recall_class_{c}'] = val_metrics['recall'][c].item()
-				log_data[f'val/dice_class_{c}'] = val_metrics['dice_scores'][c].item()
-				log_data[f'val/iou_class_{c}'] = val_metrics['iou'][c].item()
+		logging.info(f"Epoch {epoch}, Dice: {train_metrics['dice_score']}, MIoU: {train_metrics['miou']}")
+		train_table = PrettyTable(["class\\score", "P", "R", "IoU", "F1"])
+		for i in range(model.n_classes):
+			train_table.add_row(
+				[
+					i,
+					train_metrics['precision'][i].item(),
+					train_metrics['recall'][i].item(),
+					train_metrics['iou'][i].item(),
+					train_metrics['f1_score'][i].item(),
+				]
+			)
+		print(train_table)
 
-			experiment.log(log_data)
-			logging.info(f"Epoch {epoch} train loss: {train_metrics['loss']}, Dice: {train_metrics['avg_dice']}, MIoU: {train_metrics['miou']}")
-			train_table = PrettyTable(["class\\score", "P", "R", "Dice", "IoU"])
-			for i in range(model.n_classes):
-				train_table.add_row(
-					[
-						i,
-						train_metrics['precision'][i].item(),
-						train_metrics['recall'][i].item(),
-						train_metrics['dice_scores'][i].item(),
-						train_metrics['iou'][i].item(),
-					]
-				)
-			print(train_table)
+		logging.info(f"Epoch {epoch}, Dice: {val_metrics['dice_score']}, MIoU: {val_metrics['miou']}")
+		val_table = PrettyTable(["class\\score", "P", "R", "IoU", "F1"])
+		for i in range(model.n_classes):
+			val_table.add_row(
+				[
+					i,
+					val_metrics['precision'][i].item(),
+					val_metrics['recall'][i].item(),
+					val_metrics['iou'][i].item(),
+					val_metrics['f1_score'][i].item(),
+				]
+			)
+		print(val_table)
 
-			logging.info(f"Epoch {epoch} validation loss: {val_metrics['loss']}, Dice: {val_metrics['avg_dice']}, MIoU: {val_metrics['miou']}")
-			val_table = PrettyTable(["class\\score", "P", "R", "Dice", "IoU"])
-			for i in range(model.n_classes):
-				val_table.add_row(
-					[
-						i,
-						val_metrics['precision'][i].item(),
-						val_metrics['recall'][i].item(),
-						val_metrics['dice_scores'][i].item(),
-						val_metrics['iou'][i].item(),
-					]
-				)
-			print(val_table)
-
-		if save_checkpoint and epoch % 10 == 0:
+		if save_checkpoint and epoch % 5 == 0:
 			Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
 			state_dict = model.state_dict()
 			state_dict['mask_values'] = train_dataset.mask_values
@@ -250,7 +232,7 @@ if __name__ == '__main__':
 		dataset_name='level',
 		patch_size=256,
 
-		epochs=500,
+		epochs=300,
 		batch_size=128,
 		learning_rate=1e-6,
 		weight_decay=1e-8,
@@ -261,7 +243,7 @@ if __name__ == '__main__':
 		save_checkpoint=True,
 		img_scale=1.0,
 		amp=True,
-		use_se='E',
+		use_se='D',
 		bilinear=False,
 		use_weighted_sampling=False,
 		priority_list=[2, 4, 6, 5, 3, 0, 1],
