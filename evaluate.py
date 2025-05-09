@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from prettytable import PrettyTable
 
 from unet import UNet
 from utils.dice_score import *
@@ -138,25 +139,17 @@ if __name__ == '__main__':
 	dir_img = "data/patch256/test/images"
 	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		# "checkpoints_256_1e-6/checkpoint_epoch41.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch42.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch43.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch44.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch45.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch46.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch47.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch48.pth",
-		# "checkpoints_256_1e-6/checkpoint_epoch49.pth",
-		"checkpoints_256_1e-6/checkpoint_epoch50.pth",
+		"unetSE_checkpoints_256_1e-6/checkpoint_epoch300.pth",
+		"unetSE_checkpoints_256_1e-6/checkpoint_epoch500.pth",
 	]
 	img_scale = 1.0
-	batch_size = 256
+	batch_size = 16
 
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model_list = list()
 
 	for path in model_paths:
-		model = UNet(n_channels=3, n_classes=4)
+		model = UNet(3, 4, 'D')
 		model = model.to(memory_format=torch.channels_last)
 		state_dict = torch.load(path, map_location=device)
 		state_dict.pop("mask_values")
@@ -167,6 +160,18 @@ if __name__ == '__main__':
 	dataset = BasicDataset(dir_img, dir_mask, img_scale)
 	test_loader = DataLoader(dataset, shuffle=False, drop_last=True, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
 
-	for i, model in enumerate(model_list):
-		val_score = evaluate(model, test_loader, device, amp=True)
-		logging.info(val_score)
+	for model_idx, model in enumerate(model_list):
+		test_metrics = evaluate_metrics(model, test_loader, device, True)
+		logging.info(f"Model {model_paths[model_idx]}: test dataset Dice: {test_metrics['avg_dice']}, MIoU: {test_metrics['miou']}")
+		test_table = PrettyTable(["class\\score", "P", "R", "Dice", "IoU"])
+		for i in range(model.n_classes):
+			test_table.add_row(
+				[
+					i,
+					test_metrics['precision'][i].item(),
+					test_metrics['recall'][i].item(),
+					test_metrics['dice_scores'][i].item(),
+					test_metrics['iou'][i].item(),
+				]
+			)
+		print(test_table)

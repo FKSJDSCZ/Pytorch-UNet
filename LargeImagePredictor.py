@@ -150,28 +150,19 @@ class LargeImagePredictor:
 		if maskout_path:
 			lblsave(maskout_path, full_mask)
 
-		# Image.fromarray(patches[0]).save("data/test-patch0.png")
-		# Image.fromarray(patches[1]).save("data/test-patch1.png")
-		# Image.fromarray(patches[2]).save("data/test-patch2.png")
-		# Image.fromarray(patches[3]).save("data/test-patch3.png")
-		# lblsave("data/test-mask0.png", predictions[0])
-		# lblsave("data/test-mask1.png", predictions[1])
-		# lblsave("data/test-mask2.png", predictions[2])
-		# lblsave("data/test-mask3.png", predictions[3])
-
 		return full_mask
 
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="/home/ywh/Pytorch-UNet/wandb/run-20250501_132848-gwi79v7m/files/checkpoint_epoch50.pth",
+		model_path="/home/ywh/Pytorch-UNet/wandb/run-20250508_170935-ln2fumye/files/checkpoint_epoch500.pth",
 		model_clases=4,
-		patch_size=256,
-		padding=32
+		patch_size=1024,
+		padding=128
 	)
 
 	mask = predictor.predict(
 		image_path=f"/home/ywh/RESTORATION/{sys.argv[1]}.png",
-		# vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
+		vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
 		maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
 	)

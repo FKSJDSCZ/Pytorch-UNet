@@ -10,39 +10,45 @@ import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 from pathlib import Path
 from torch import optim
+from torch.nn.functional import bilinear
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from prettytable import PrettyTable
+from wandb.util import downsample
 
 import wandb
-from evaluate import *
+from evaluate import evaluate, evaluate_metrics
 from unet import UNet
 from utils.data_loading import BasicDataset
 from utils.dice_score import dice_loss
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 train_image_dir = "data/patch256/train/images"
 train_mask_dir = "data/patch256/train/masks"
 val_image_dir = "data/patch256/val/images"
 val_mask_dir = "data/patch256/val/masks"
-checkpoint_dir = "checkpoints_256_1e-6"
+checkpoint_dir = "unet_checkpoints_256_1e-6"
 
 
-def train_model(
-		model,
-		device,
-		epochs: int = 5,
-		batch_size: int = 1,
-		learning_rate: float = 1e-5,
-		val_percent: float = 0.1,
-		save_checkpoint: bool = True,
-		img_scale: float = 0.5,
-		amp: bool = False,
-		weight_decay: float = 1e-8,
-		momentum: float = 0.999,
-		gradient_clipping: float = 1.0,
-		use_weighted_sampling: bool = False,
-		priority_list: list = None,
-):
+def train_model(model, config):
+	down_sample: float = config['down_sample']
+	dataset_name: str = config['dataset_name']
+	patch_size: int = config['patch_size']
+	epochs: int = config['epochs']
+	batch_size: int = config['batch_size']
+	learning_rate: float = config['learning_rate']
+	weight_decay: float = config['weight_decay']
+	momentum: float = config['momentum']
+	gradient_clipping: float = config['gradient_clipping']
+	save_checkpoint: bool = config['save_checkpoint']
+	img_scale: float = config['img_scale']
+	amp: bool = config['amp']
+	use_weighted_sampling: bool = config['use_weighted_sampling']
+	priority_list: list[int] = config['priority_list']
+	device: torch.device = config['device']
+	config['device'] = device.type
+
 	# 1. Create dataset
 	train_dataset = BasicDataset(
 		train_image_dir,
@@ -62,7 +68,7 @@ def train_model(
 	loader_args = dict(batch_size=batch_size, num_workers=min(os.cpu_count(), 16), pin_memory=True)
 	if use_weighted_sampling and priority_list:
 		logging.info('Using weighted sampling with priority list: {}'.format(priority_list))
-		sampler = dataset.get_sampler()
+		sampler = train_dataset.get_sampler()
 		if sampler:
 			logging.info('Weighted sampler created successfully')
 			train_loader = DataLoader(train_dataset, sampler=sampler, **loader_args)
@@ -75,11 +81,13 @@ def train_model(
 	val_loader = DataLoader(val_dataset, shuffle=False, drop_last=True, **loader_args)
 
 	# (Initialize logging)
-	experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
-	experiment.config.update(
-		dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
-		     val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp,
-		     use_weighted_sampling=use_weighted_sampling, priority_list=priority_list if priority_list else "None")
+	experiment = wandb.init(
+		config=config,
+		project='U-Net',
+		name=f"unet{f'SE-{model.using_se}' if model.using_se else ''}-{'' if down_sample == 1 else f'{down_sample}x'}{dataset_name}-{model.n_classes}c-{patch_size}p",
+		resume='allow',
+		anonymous='allow',
+		id=wandb.util.generate_id()
 	)
 
 	logging.info(f'''Starting training:
@@ -224,96 +232,67 @@ def train_model(
 				)
 			print(val_table)
 
-		if save_checkpoint:
+		if save_checkpoint and epoch % 10 == 0:
 			Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
 			state_dict = model.state_dict()
-			state_dict['mask_values'] = dataset.mask_values
+			state_dict['mask_values'] = train_dataset.mask_values
 			torch.save(state_dict, str(Path(checkpoint_dir) / 'checkpoint_epoch{}.pth'.format(epoch)))
 			logging.info(f'Checkpoint {epoch} saved!')
 
 
-def get_args():
-	parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
-	parser.add_argument('--epochs', '-e', metavar='E', type=int, default=50, help='Number of epochs')
-	parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=128, help='Batch size')
-	parser.add_argument('--learning-rate', '-l', metavar='LR', type=float, default=1e-6, help='Learning rate', dest='lr')
-	parser.add_argument('--load', '-f', type=str, default=False, help='Load model from a .pth file')
-	parser.add_argument('--scale', '-s', type=float, default=1.0, help='Downscaling factor of the images')
-	parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0, help='Percent of the data that is used as validation (0-100)')
-	parser.add_argument('--amp', action='store_true', default=True, help='Use mixed precision')
-	parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-	parser.add_argument('--classes', '-c', type=int, default=7, help='Number of classes')
-	parser.add_argument('--weighted-sampling', '-w', action='store_true', default=True, help='Use weighted sampling for imbalanced dataset')
-	parser.add_argument('--priority-list', '-p', type=str, default="2,4,6,5,3,0,1", help='Priority list for weighted sampling, format: "3,1,2,0"')
-
-	return parser.parse_args()
-
-
 if __name__ == '__main__':
-	args = get_args()
+	# channels=3 for RGB images
+	# classes is the number of probabilities you want to get per pixel
+	config = dict(
+		channels=3,
+		classes=4,
+		down_sample=4,
+		dataset_name='level',
+		patch_size=256,
 
-	logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-	logging.info(f'Using device {device}')
+		epochs=500,
+		batch_size=128,
+		learning_rate=1e-6,
+		weight_decay=1e-8,
+		momentum=0.999,
+		gradient_clipping=1.0,
 
-	# Parse priority list if provided
-	priority_list = None
-	if args.priority_list is not None:
-		try:
-			priority_list = [int(x) for x in args.priority_list.split(',')]
-			assert len(priority_list) == args.classes, f"Priority list length ({len(priority_list)}) must match number of classes ({args.classes})"
-		except Exception as e:
-			logging.error(f"Error parsing priority list: {e}")
-			logging.error("Priority list should be in format '3,1,2,0'")
-			logging.error("Disabling weighted sampling")
-			args.weighted_sampling = False
+		preload='',
+		save_checkpoint=True,
+		img_scale=1.0,
+		amp=True,
+		use_se='E',
+		bilinear=False,
+		use_weighted_sampling=False,
+		priority_list=[2, 4, 6, 5, 3, 0, 1],
 
-	# Change here to adapt to your data
-	# n_channels=3 for RGB images
-	# n_classes is the number of probabilities you want to get per pixel
-	model = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+		device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	)
+
+	logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+	logging.info(f"Using device {config['device']}")
+
+	if config['use_weighted_sampling'] and len(config['priority_list']) != config['classes']:
+		logging.warning(f"Priority list length ({len(config['priority_list'])}) must match number of classes ({config['classes']})")
+		logging.warning("Disabling weighted sampling")
+		config['use_weighted_sampling'] = False
+
+	model = UNet(config['channels'], config['classes'], config['use_se'], config['bilinear'])
 	model = model.to(memory_format=torch.channels_last)
 
-	logging.info(f'Network:\n'
-	             f'\t{model.n_channels} input channels\n'
-	             f'\t{model.n_classes} output channels (classes)\n'
-	             f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling')
+	logging.info(
+		f'Network:\n'
+		f'\t{model.n_channels} input channels\n'
+		f'\t{model.n_classes} output channels (classes)\n'
+		f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling\n'
+		f'\tSE block: {model.using_se}'
+	)
 
-	if args.load:
-		state_dict = torch.load(args.load, map_location=device)
+	if config['preload']:
+		state_dict = torch.load(config['preload'], map_location=config['device'])
 		del state_dict['mask_values']
 		model.load_state_dict(state_dict)
-		logging.info(f'Model loaded from {args.load}')
+		logging.info(f"Model loaded from {config['preload']}")
 
-	model.to(device=device)
-	try:
-		train_model(
-			model=model,
-			epochs=args.epochs,
-			batch_size=args.batch_size,
-			learning_rate=args.lr,
-			device=device,
-			img_scale=args.scale,
-			val_percent=args.val / 100,
-			amp=args.amp,
-			use_weighted_sampling=args.weighted_sampling,
-			priority_list=priority_list,
-		)
-	except torch.cuda.OutOfMemoryError:
-		logging.error('Detected OutOfMemoryError! '
-		              'Enabling checkpointing to reduce memory usage, but this slows down training. '
-		              'Consider enabling AMP (--amp) for fast and memory efficient training')
-		torch.cuda.empty_cache()
-		model.use_checkpointing()
-		train_model(
-			model=model,
-			epochs=args.epochs,
-			batch_size=args.batch_size,
-			learning_rate=args.lr,
-			device=device,
-			img_scale=args.scale,
-			val_percent=args.val / 100,
-			amp=args.amp,
-			use_weighted_sampling=args.weighted_sampling,
-			priority_list=priority_list,
-		)
+	model.to(device=config['device'])
+	train_model(model, config)
