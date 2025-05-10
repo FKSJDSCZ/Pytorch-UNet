@@ -12,7 +12,7 @@ from utils.data_loading import BasicDataset
 
 
 @torch.inference_mode()
-def evaluate_metrics(net, dataloader, device, amp):
+def evaluate_metrics(net, dataloader, device, amp, criterion):
 	net.eval()
 	num_batches = len(dataloader)
 	n_classes = net.n_classes
@@ -27,6 +27,7 @@ def evaluate_metrics(net, dataloader, device, amp):
 		fp = torch.tensor(0, device=device, dtype=torch.float)
 		fn = torch.tensor(0, device=device, dtype=torch.float)
 	dice_score = 0
+	total_loss = torch.tensor(0, device=device, dtype=torch.float)
 
 	# Iterate over the validation set
 	with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
@@ -43,7 +44,13 @@ def evaluate_metrics(net, dataloader, device, amp):
 			# Calculate metrics
 			if n_classes == 1:
 				assert mask_true.min() >= 0 and mask_true.max() <= 1, 'True mask indices should be in [0, 1]'
-				mask_pred = (F.sigmoid(mask_pred.squeeze(1)) > 0.5).float()
+				mask_pred = mask_pred.squeeze(1)
+				total_loss += criterion(mask_pred, mask_true.float())
+
+				mask_pred = F.sigmoid(mask_pred)
+				total_loss += dice_loss(mask_pred, mask_true.float(), multiclass=False)
+
+				mask_pred = (mask_pred > 0.5).float()
 				dice_score += dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
 
 				# Binary case
@@ -52,6 +59,12 @@ def evaluate_metrics(net, dataloader, device, amp):
 				fn += ((mask_pred == 0) & (mask_true == 1)).sum().float()
 			else:
 				assert mask_true.min() >= 0 and mask_true.max() < n_classes, 'True mask indices should be in [0, n_classes]'
+				total_loss += criterion(mask_pred, mask_true)
+				total_loss += dice_loss(
+					F.softmax(mask_pred, dim=1).float(),
+					F.one_hot(mask_true, net.n_classes).permute(0, 3, 1, 2).float(),
+					multiclass=True
+				)
 				mask_pred = mask_pred.argmax(dim=1)
 
 				# Convert to one-hot format, then compute the Dice score ignoring background
@@ -73,6 +86,7 @@ def evaluate_metrics(net, dataloader, device, amp):
 	recall = tp / (tp + fn + smooth)
 	iou = tp / (tp + fp + fn + smooth)
 	f1_score = 2 * precision * recall / (precision + recall + smooth)
+	avg_loss = total_loss / num_batches
 
 	# Prepare results dictionary
 	results = {
@@ -82,6 +96,7 @@ def evaluate_metrics(net, dataloader, device, amp):
 		'f1_score': f1_score,
 		'dice_score': dice_score / max(num_batches, 1),
 		'miou': iou.mean(),
+		'loss': avg_loss.item(),
 	}
 
 	net.train()
@@ -94,16 +109,16 @@ if __name__ == '__main__':
 	dir_img = "data/patch256/test/images"
 	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		"wandb/run-20250508_170703-68visrp4/files/checkpoint_epoch500.pth"
+		"unet_checkpoints/checkpoint_epoch125.pth"
 	]
 	img_scale = 1.0
-	batch_size = 256
+	batch_size = 16
 
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model_list = list()
 
 	for path in model_paths:
-		model = UNet(3, 4, 'D')
+		model = UNet(3, 4)
 		model = model.to(memory_format=torch.channels_last)
 		state_dict = torch.load(path, map_location=device)
 		state_dict.pop("mask_values")
@@ -116,16 +131,16 @@ if __name__ == '__main__':
 
 	for model_idx, model in enumerate(model_list):
 		test_metrics = evaluate_metrics(model, test_loader, device, True, torch.nn.CrossEntropyLoss() if model.n_classes > 1 else torch.nn.BCEWithLogitsLoss())
-		logging.info(f"Model {model_paths[model_idx]}: test dataset loss: {test_metrics['loss']}, Dice: {test_metrics['avg_dice']}, MIoU: {test_metrics['miou']}")
-		test_table = PrettyTable(["class\\score", "P", "R", "Dice", "IoU"])
+		logging.info(f"Model {model_paths[model_idx]}: Dice: {test_metrics['dice_score']}, MIoU: {test_metrics['miou']}")
+		test_table = PrettyTable(["class\\score", "P", "R", "IoU", "F1"])
 		for i in range(model.n_classes):
 			test_table.add_row(
 				[
 					i,
 					test_metrics['precision'][i].item(),
 					test_metrics['recall'][i].item(),
-					test_metrics['dice_scores'][i].item(),
 					test_metrics['iou'][i].item(),
+					test_metrics['f1_score'][i].item(),
 				]
 			)
 		print(test_table)

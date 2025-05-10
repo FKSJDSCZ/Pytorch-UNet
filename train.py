@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
+from datetime import datetime
 from pathlib import Path
 from torch import optim
 from torch.nn.functional import bilinear
@@ -28,7 +29,6 @@ train_image_dir = "data/patch256/train/images"
 train_mask_dir = "data/patch256/train/masks"
 val_image_dir = "data/patch256/val/images"
 val_mask_dir = "data/patch256/val/masks"
-checkpoint_dir = "unetSE_checkpoints"
 
 
 def train_model(model, config):
@@ -81,13 +81,15 @@ def train_model(model, config):
 	val_loader = DataLoader(val_dataset, shuffle=False, drop_last=True, **loader_args)
 
 	# (Initialize logging)
+	run_id = wandb.util.generate_id()
+	checkpoint_dir = f"checkpoint_{datetime.now().strftime('%Y%m%d%H%M')}_{run_id}"
 	experiment = wandb.init(
 		config=config,
 		project='U-Net',
 		name=f"unet{f'SE-{model.using_se}' if model.using_se else ''}-{'' if down_sample == 1 else f'{down_sample}x'}{dataset_name}-{model.n_classes}c-{patch_size}p",
 		resume='allow',
 		anonymous='allow',
-		id=wandb.util.generate_id()
+		id=run_id
 	)
 
 	logging.info(f'''Starting training:
@@ -106,7 +108,8 @@ def train_model(model, config):
 
 	# 3. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
 	optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
-	scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=5)  # goal: maximize Dice score
+	# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, cooldown=5, min_lr=1e-8)  # goal: maximize Dice score
+	scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100], gamma=0.1)
 	grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
 	criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
 	global_step = 0
@@ -156,8 +159,10 @@ def train_model(model, config):
 				pbar.set_postfix(**{'loss (batch)': loss.item()})
 
 		# Final evaluation of the epoch
-		train_metrics = evaluate_metrics(model, train_loader, device, amp)
-		val_metrics = evaluate_metrics(model, val_loader, device, amp)
+		train_metrics = evaluate_metrics(model, train_loader, device, amp, criterion)
+		val_metrics = evaluate_metrics(model, val_loader, device, amp, criterion)
+		# scheduler.step(val_metrics['dice_score'])
+		scheduler.step()
 
 		log_data = {
 			'learning rate': optimizer.param_groups[0]['lr'],
@@ -165,6 +170,7 @@ def train_model(model, config):
 			'step': global_step,
 			'train/dice': train_metrics['dice_score'],
 			'train/miou': train_metrics['miou'],
+			'train/loss': train_metrics['loss'],
 		}
 
 		for c in range(model.n_classes):
@@ -176,6 +182,7 @@ def train_model(model, config):
 		log_data.update({
 			'val/dice': val_metrics['dice_score'],
 			'val/miou': val_metrics['miou'],
+			'val/loss': val_metrics['loss'],
 		})
 
 		for c in range(model.n_classes):
@@ -243,7 +250,7 @@ if __name__ == '__main__':
 		save_checkpoint=True,
 		img_scale=1.0,
 		amp=True,
-		use_se='D',
+		use_se=False,
 		bilinear=False,
 		use_weighted_sampling=False,
 		priority_list=[2, 4, 6, 5, 3, 0, 1],
