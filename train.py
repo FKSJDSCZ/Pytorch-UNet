@@ -107,9 +107,11 @@ def train_model(model, config):
     ''')
 
 	# 3. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
-	optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
+	optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 	# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, cooldown=5, min_lr=1e-8)  # goal: maximize Dice score
-	scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100], gamma=0.1)
+	# scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100], gamma=0.1)
+	# scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, epochs, 1, 1e-7)
+	scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 200, 1e-7)
 	grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
 	criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
 	global_step = 0
@@ -234,14 +236,14 @@ if __name__ == '__main__':
 	# classes is the number of probabilities you want to get per pixel
 	config = dict(
 		channels=3,
-		classes=4,
+		classes=7,
 		down_sample=4,
-		dataset_name='level',
+		dataset_name='type',
 		patch_size=256,
 
 		epochs=300,
 		batch_size=128,
-		learning_rate=1e-6,
+		learning_rate=1e-4,
 		weight_decay=1e-8,
 		momentum=0.999,
 		gradient_clipping=1.0,
@@ -252,8 +254,9 @@ if __name__ == '__main__':
 		amp=True,
 		use_se=False,
 		bilinear=False,
-		use_weighted_sampling=False,
-		priority_list=[2, 4, 6, 5, 3, 0, 1],
+		use_weighted_sampling=True,
+		priority_list=[6, 5, 4, 3, 1, 2, 0],
+		# priority_list=[3, 1, 2, 0],
 
 		device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	)

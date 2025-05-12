@@ -124,8 +124,9 @@ class LargeImagePredictor:
 		print("Assemble finished")
 		return full_mask
 
-	def predict(self, image_path: str, vizout_path: str = None, maskout_path: str = None) -> np.ndarray:
-		image = np.array(Image.open(image_path))
+	def predict(self, image_path: str, downsample_scale: float = 1, vizout_path: str = None, maskout_path: str = None) -> np.ndarray:
+		image = Image.open(image_path)
+		image = np.array(image.resize((int(image.width // downsample_scale), int(image.height // downsample_scale))))
 		padded_image, pad_sizes = self._pad_image(image)
 		patches, coordinates = self._extract_patches(padded_image)
 
@@ -156,15 +157,16 @@ class LargeImagePredictor:
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="/home/ywh/Pytorch-UNet/wandb/run-20250508_170703-68visrp4/files/checkpoint_epoch500.pth",
-		model_clases=4,
-		using_se='D',
-		patch_size=1024,
-		padding=128
+		model_path="/home/ywh/Pytorch-UNet/checkpoint_202505121413_g66i7qpo/checkpoint_epoch200.pth",
+		model_clases=7,
+		using_se=False,
+		patch_size=2048,
+		padding=0
 	)
 
 	mask = predictor.predict(
 		image_path=f"/home/ywh/RESTORATION/{sys.argv[1]}.png",
-		vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
+		downsample_scale=1,
+		# vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
 		maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
 	)
