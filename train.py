@@ -20,7 +20,7 @@ from wandb.util import downsample
 import wandb
 from evaluate import evaluate_metrics
 from unet import UNet
-from utils.data_loading import BasicDataset
+from utils.data_loading import ExperimentDataset
 from utils.dice_score import dice_loss
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -50,7 +50,7 @@ def train_model(model, config):
 	config['device'] = device.type
 
 	# 1. Create dataset
-	train_dataset = BasicDataset(
+	train_dataset = ExperimentDataset(
 		train_image_dir,
 		train_mask_dir,
 		img_scale,
@@ -58,7 +58,7 @@ def train_model(model, config):
 		priority_list=priority_list
 	)
 
-	val_dataset = BasicDataset(
+	val_dataset = ExperimentDataset(
 		val_image_dir,
 		val_mask_dir,
 		img_scale,
@@ -82,7 +82,7 @@ def train_model(model, config):
 
 	# (Initialize logging)
 	run_id = wandb.util.generate_id()
-	checkpoint_dir = f"checkpoint_{datetime.now().strftime('%Y%m%d%H%M')}_{run_id}"
+	checkpoint_dir = f"checkpoint_{datetime.now().strftime('%Y%m%d%_H%M%S')}_{run_id}"
 	experiment = wandb.init(
 		config=config,
 		project='U-Net',

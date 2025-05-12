@@ -8,7 +8,7 @@ from prettytable import PrettyTable
 
 from unet import UNet
 from utils.dice_score import *
-from utils.data_loading import BasicDataset
+from utils.data_loading import ExperimentDataset
 
 
 @torch.inference_mode()
@@ -109,7 +109,8 @@ if __name__ == '__main__':
 	dir_img = "data/patch256/test/images"
 	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		"unet_checkpoints/checkpoint_epoch125.pth"
+		"checkpoint_202505101110_15yc5hp8/checkpoint_epoch205.pth",
+		"checkpoint_202505101110_myoq5iwa/checkpoint_epoch205.pth",
 	]
 	img_scale = 1.0
 	batch_size = 16
@@ -126,12 +127,18 @@ if __name__ == '__main__':
 		model.to(device=device)
 		model_list.append(model)
 
-	dataset = BasicDataset(dir_img, dir_mask, img_scale)
+	dataset = ExperimentDataset(dir_img, dir_mask, img_scale)
 	test_loader = DataLoader(dataset, shuffle=False, drop_last=True, batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
 
 	for model_idx, model in enumerate(model_list):
 		test_metrics = evaluate_metrics(model, test_loader, device, True, torch.nn.CrossEntropyLoss() if model.n_classes > 1 else torch.nn.BCEWithLogitsLoss())
-		logging.info(f"Model {model_paths[model_idx]}: Dice: {test_metrics['dice_score']}, MIoU: {test_metrics['miou']}")
+		logging.info(f"Model {model_paths[model_idx]}:\n"
+					 f"\t\tLoss: {test_metrics['loss']},\n"
+					 f"\t\tDice: {test_metrics['dice_score']},\n"
+					 f"\t\tMIoU: {test_metrics['miou']},\n"
+					 f"\t\tMacro-avg P: {test_metrics['precision'].mean()},\n"
+					 f"\t\tMacro-avg R: {test_metrics['recall'].mean()},\n"
+					 f"\t\tMacro-avg F1: {test_metrics['f1_score'].mean()},")
 		test_table = PrettyTable(["class\\score", "P", "R", "IoU", "F1"])
 		for i in range(model.n_classes):
 			test_table.add_row(

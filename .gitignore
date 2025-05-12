@@ -1,7 +1,7 @@
 *.pyc
 data/
 __pycache__/
-checkpoints/
+checkpoint*
 *.pth
 *.jpg
 venv/

@@ -2,16 +2,17 @@ import logging
 import numpy as np
 import torch
 import os
+import json
 from PIL import Image
-from functools import lru_cache
 from functools import partial
-from itertools import repeat
 from multiprocessing import Pool
 from os import listdir
 from os.path import splitext, isfile, join
 from pathlib import Path
 from torch.utils.data import Dataset, WeightedRandomSampler
 from tqdm import tqdm
+
+from shape import shapes_to_label
 
 
 def load_image(filename):
@@ -49,14 +50,14 @@ def process_mask(idx, mask_dir, mask_suffix, priority_list=None):
 	return unique_values, assigned_group
 
 
-class BasicDataset(Dataset):
+class ExperimentDataset(Dataset):
 	def __init__(self,
-				 images_dir: str,
-				 mask_dir: str,
-				 scale: float = 1.0,
-				 mask_suffix: str = '',
-				 use_weighted_sampling: bool = False,
-				 priority_list: list = None):
+	             images_dir: str,
+	             mask_dir: str,
+	             scale: float = 1.0,
+	             mask_suffix: str = '',
+	             use_weighted_sampling: bool = False,
+	             priority_list: list = None):
 		self.images_dir = Path(images_dir)
 		self.mask_dir = Path(mask_dir)
 		assert 0 < scale <= 1, 'Scale must be between 0 and 1'
@@ -182,3 +183,164 @@ class BasicDataset(Dataset):
 			'image': torch.as_tensor(img.copy()).float().contiguous(),
 			'mask': torch.as_tensor(mask.copy()).long().contiguous()
 		}
+
+
+class LargeImageDataset(Dataset):
+	def __init__(
+			self,
+			image_path: str,
+			json_path: str = None,
+			patch_size: int = 256,
+			padding: int = 0,
+			downsample_scale: float = 1.0,
+			labelMap: dict = None
+	):
+		self.patch_size = patch_size
+		self.padding = padding
+		self.downsample_scale = downsample_scale
+		self.labelMap = labelMap or {
+			"background": 0,
+			"severe": 1,
+			"medium": 2,
+			"slight": 3,
+		}
+
+		# Load and process the image
+		self.image = Image.open(image_path)
+		self.original_size = self.image.size
+		if self.downsample_scale == 1:
+			self.image = np.array(self.image)
+		else:
+			self.image = np.array(self.image.resize(
+				(
+					int(self.image.width // self.downsample_scale),
+					int(self.image.height // self.downsample_scale)
+				),
+				Image.Resampling.BICUBIC
+			))
+
+		# Load and process the mask if JSON annotations are provided
+		self.mask = None
+		if json_path:
+			self.mask = self._load_and_process_mask()
+
+		# Extract patches and their coordinates
+		self.patches, self.coordinates = self._extract_patches()
+
+	def _load_and_process_mask(self) -> np.ndarray:
+		"""Load JSON annotations and create mask."""
+		with open(self.json_path) as f:
+			annotations = json.load(f)
+
+		# Create mask from annotations
+		original_shape = (int(annotations.get("imageHeight", self.image.shape[0] * self.downsample_scale)),
+		                  int(annotations.get("imageWidth", self.image.shape[1] * self.downsample_scale)))
+
+		mask = shapes_to_label(original_shape, annotations['shapes'], self.labelMap)
+
+		# Apply the same downsampling as the image
+		if self.downsample_scale != 1.0:
+			mask = np.array(Image.fromarray(mask, mode="P").resize(
+				(self.image.shape[1], self.image.shape[0]),
+				Image.Resampling.NEAREST
+			))
+
+		return mask
+
+	def _pad_image_and_mask(self, image: np.ndarray, mask: np.ndarray = None) -> tuple[np.ndarray, np.ndarray | None, tuple[int, int]]:
+		"""Pad image and mask to ensure they can be divided into patches."""
+		h, w = image.shape[:2]
+
+		# Calculate new dimensions that are divisible by patch_size
+		new_h = ((h + self.patch_size - 1) // self.patch_size) * self.patch_size
+		new_w = ((w + self.patch_size - 1) // self.patch_size) * self.patch_size
+
+		pad_h = new_h - h
+		pad_w = new_w - w
+
+		# Pad the image
+		padded_image = np.pad(
+			image,
+			((self.padding, self.padding + pad_h), (self.padding, self.padding + pad_w), (0, 0)),
+			mode='constant',
+			constant_values=255
+		)
+
+		# Pad the mask if it exists
+		padded_mask = None
+		if mask:
+			padded_mask = np.pad(
+				mask,
+				((self.padding, self.padding + pad_h), (self.padding, self.padding + pad_w)),
+				mode='constant',
+				constant_values=0
+			)
+
+		return padded_image, padded_mask, (pad_h, pad_w)
+
+	def _extract_patches(self) -> tuple[list[dict], list[tuple[int, int]]]:
+		"""Extract patches from the image and mask."""
+		# First pad the image and mask
+		padded_image, padded_mask, _ = self._pad_image_and_mask(self.image, self.mask)
+
+		h, w = padded_image.shape[:2]
+		patches = []
+		coordinates = []
+
+		# Extract patches with padding
+		for y in range(0, h - 2 * self.padding, self.patch_size):
+			for x in range(0, w - 2 * self.padding, self.patch_size):
+				patch_dict = {}
+
+				# Extract image patch
+				img_patch = padded_image[
+				            y:y + self.patch_size + 2 * self.padding,
+				            x:x + self.patch_size + 2 * self.padding
+				            ]
+				patch_dict['image'] = img_patch
+
+				# Extract mask patch if mask exists
+				if padded_mask:
+					mask_patch = padded_mask[
+					             y:y + self.patch_size + 2 * self.padding,
+					             x:x + self.patch_size + 2 * self.padding
+					             ]
+					patch_dict['mask'] = mask_patch
+
+				patches.append(patch_dict)
+				coordinates.append((y, x))
+
+		return patches, coordinates
+
+	def __len__(self) -> int:
+		return len(self.patches)
+
+	def __getitem__(self, idx: int) -> dict:
+		"""Return a patch at the given index."""
+		patch_dict = self.patches[idx]
+
+		# Process image patch
+		img_patch = patch_dict['image']
+		if img_patch.ndim == 2:
+			img_patch = img_patch[np.newaxis, ...]
+		else:
+			img_patch = img_patch.transpose((2, 0, 1))
+
+		if (img_patch > 1).any():
+			img_patch = img_patch / 255.0
+
+		result = {
+			'image': torch.as_tensor(img_patch.copy()).float().contiguous(),
+			'coordinate': self.coordinates[idx]
+		}
+
+		# Process mask patch if it exists
+		if 'mask' in patch_dict:
+			mask_patch = patch_dict['mask']
+			result['mask'] = torch.as_tensor(mask_patch.copy()).long().contiguous()
+
+		return result
+
+	def get_original_size(self) -> tuple[int, ...]:
+		"""Return the original image size before padding."""
+		return self.image.shape[:2]
