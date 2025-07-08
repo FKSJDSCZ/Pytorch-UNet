@@ -82,7 +82,7 @@ def train_model(model, config):
 
 	# (Initialize logging)
 	run_id = wandb.util.generate_id()
-	checkpoint_dir = f"checkpoint_{datetime.now().strftime('%Y%m%d%_H%M%S')}_{run_id}"
+	checkpoint_dir = f"checkpoint_{datetime.now().strftime('%Y%m%d%H%M%S')}_{run_id}"
 	experiment = wandb.init(
 		config=config,
 		project='U-Net',
@@ -111,7 +111,7 @@ def train_model(model, config):
 	# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=10, cooldown=5, min_lr=1e-8)  # goal: maximize Dice score
 	# scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100], gamma=0.1)
 	# scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, epochs, 1, 1e-7)
-	scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 200, 1e-7)
+	scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs, 1e-7)
 	grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
 	criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
 	global_step = 0

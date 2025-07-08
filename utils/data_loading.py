@@ -12,7 +12,7 @@ from pathlib import Path
 from torch.utils.data import Dataset, WeightedRandomSampler
 from tqdm import tqdm
 
-from shape import shapes_to_label
+from .shape import shapes_to_label
 
 
 def load_image(filename):

@@ -157,16 +157,16 @@ class LargeImagePredictor:
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="/home/ywh/Pytorch-UNet/checkpoint_202505121413_g66i7qpo/checkpoint_epoch200.pth",
+		model_path="/home/ywh/Pytorch-UNet/checkpoint_20250706234427_m6tqqobs/checkpoint_epoch200.pth",
 		model_clases=7,
 		using_se=False,
-		patch_size=2048,
-		padding=0
+		patch_size=128,
+		padding=32
 	)
 
 	mask = predictor.predict(
-		image_path=f"/home/ywh/RESTORATION/{sys.argv[1]}.png",
+		image_path=sys.argv[1],
 		downsample_scale=1,
 		# vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
-		maskout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-mask.png"
+		maskout_path=sys.argv[2]
 	)
