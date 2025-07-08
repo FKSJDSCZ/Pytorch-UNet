@@ -85,8 +85,8 @@ def train_model(model, config):
 	checkpoint_dir = f"checkpoint_{datetime.now().strftime('%Y%m%d%H%M%S')}_{run_id}"
 	experiment = wandb.init(
 		config=config,
-		project='U-Net',
-		name=f"unet{f'SE-{model.using_se}' if model.using_se else ''}-{'' if down_sample == 1 else f'{down_sample}x'}{dataset_name}-{model.n_classes}c-{patch_size}p",
+		project=config['project'],
+		name=f"{model.__class__.__name__}-{'' if down_sample == 1 else f'{down_sample}x'}{dataset_name}-{model.n_classes}c-{patch_size}p",
 		resume='allow',
 		anonymous='allow',
 		id=run_id
@@ -235,6 +235,8 @@ if __name__ == '__main__':
 	# channels=3 for RGB images
 	# classes is the number of probabilities you want to get per pixel
 	config = dict(
+		project='U-Net',
+
 		channels=3,
 		classes=7,
 		down_sample=4,
@@ -252,7 +254,6 @@ if __name__ == '__main__':
 		save_checkpoint=True,
 		img_scale=1.0,
 		amp=True,
-		use_se=False,
 		bilinear=False,
 		use_weighted_sampling=True,
 		priority_list=[6, 5, 4, 3, 1, 2, 0],
@@ -269,15 +270,14 @@ if __name__ == '__main__':
 		logging.warning("Disabling weighted sampling")
 		config['use_weighted_sampling'] = False
 
-	model = UNet(config['channels'], config['classes'], config['use_se'], config['bilinear'])
+	model = UNet(config['channels'], config['classes'], config['bilinear'])
 	model = model.to(memory_format=torch.channels_last)
 
 	logging.info(
-		f'Network:\n'
+		f'Network: {model.__class__.__name__}\n'
 		f'\t{model.n_channels} input channels\n'
 		f'\t{model.n_classes} output channels (classes)\n'
-		f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling\n'
-		f'\tSE block: {model.using_se}'
+		f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling'
 	)
 
 	if config['preload']:
