@@ -19,7 +19,7 @@ from wandb.util import downsample
 
 import wandb
 from evaluate import evaluate_metrics
-from unet import UNet
+from unet import *
 from utils.data_loading import ExperimentDataset
 from utils.dice_score import dice_loss
 
@@ -243,7 +243,7 @@ if __name__ == '__main__':
 		dataset_name='type',
 		patch_size=256,
 
-		epochs=300,
+		epochs=200,
 		batch_size=128,
 		learning_rate=1e-4,
 		weight_decay=1e-8,
@@ -255,7 +255,7 @@ if __name__ == '__main__':
 		img_scale=1.0,
 		amp=True,
 		bilinear=False,
-		use_weighted_sampling=True,
+		use_weighted_sampling=False,
 		priority_list=[6, 5, 4, 3, 1, 2, 0],
 		# priority_list=[3, 1, 2, 0],
 
@@ -270,7 +270,7 @@ if __name__ == '__main__':
 		logging.warning("Disabling weighted sampling")
 		config['use_weighted_sampling'] = False
 
-	model = UNet(config['channels'], config['classes'], config['bilinear'])
+	model = UNetSE2(config['channels'], config['classes'], config['bilinear'])
 	model = model.to(memory_format=torch.channels_last)
 
 	logging.info(

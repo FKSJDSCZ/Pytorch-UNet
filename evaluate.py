@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from prettytable import PrettyTable
 
-from unet import UNet
+from unet import *
 from utils.dice_score import *
 from utils.data_loading import ExperimentDataset
 
@@ -109,17 +109,28 @@ if __name__ == '__main__':
 	dir_img = "data/patch256/test/images"
 	dir_mask = "data/patch256/test/masks"
 	model_paths = [
-		"checkpoint_202505101110_15yc5hp8/checkpoint_epoch205.pth",
-		"checkpoint_202505101110_myoq5iwa/checkpoint_epoch205.pth",
+		# level
+		# ["checkpoint_20250706185923_x5fraiks/checkpoint_epoch200.pth", UNet],
+		# ["checkpoint_20250709001221_f32c5d61/checkpoint_epoch200.pth", UNetSE1],
+		# ["checkpoint_20250706185801_kem8z2ud/checkpoint_epoch200.pth", UNetSE2],
+		# ["checkpoint_20250709001451_t6yg49bh/checkpoint_epoch200.pth", UNetSE3],
+		# ["checkpoint_20250709095708_2lnjlh89/checkpoint_epoch200.pth", UNetSE4],
+
+		# type
+		["checkpoint_20250706234427_m6tqqobs/checkpoint_epoch200.pth", UNet],
+		["checkpoint_20250706234339_9yc060nb/checkpoint_epoch200.pth", UNetSE2],
+		["checkpoint_20250710011851_lo7t9q1l/checkpoint_epoch200.pth", UNetSE2],
+		["checkpoint_20250710012041_9bv239uj/checkpoint_epoch200.pth", UNetSE2],
+		["checkpoint_20250709205747_e405k6g0/checkpoint_epoch200.pth", UNetSE4],
 	]
 	img_scale = 1.0
-	batch_size = 16
+	batch_size = 128
 
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model_list = list()
 
-	for path in model_paths:
-		model = UNet(3, 4)
+	for path, model_class in model_paths:
+		model = model_class(3, 7)
 		model = model.to(memory_format=torch.channels_last)
 		state_dict = torch.load(path, map_location=device)
 		state_dict.pop("mask_values")
@@ -132,7 +143,7 @@ if __name__ == '__main__':
 
 	for model_idx, model in enumerate(model_list):
 		test_metrics = evaluate_metrics(model, test_loader, device, True, torch.nn.CrossEntropyLoss() if model.n_classes > 1 else torch.nn.BCEWithLogitsLoss())
-		logging.info(f"Model {model_paths[model_idx]}:\n"
+		logging.info(f"Model {model_paths[model_idx][0]}:\n"
 					 f"\t\tLoss: {test_metrics['loss']},\n"
 					 f"\t\tDice: {test_metrics['dice_score']},\n"
 					 f"\t\tMIoU: {test_metrics['miou']},\n"

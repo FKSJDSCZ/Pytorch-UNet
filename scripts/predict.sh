@@ -23,7 +23,7 @@
 #python ~/Pytorch-UNet/LargeImagePredictor.py 38-T-leftwall-3
 #python ~/Pytorch-UNet/LargeImagePredictor.py 38-T-leftwall-4
 
-python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/38-T-left-corridor.png ~/RESTORATION/predict/38-T-left-corridor-unet-type-p128.png
-python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/downsampled/38-T-corbel_4xDownSampled.png ~/RESTORATION/predict/38-T-corbel-unet-type-p128.png
-python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/downsampled/38-T-right-corridor_4xDownSampled.png ~/RESTORATION/predict/38-T-right-corridor-unet-type-p128.png
-python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/downsampled/38-T-leftwall_4xDownSampled.png ~/RESTORATION/predict/38-T-leftwall-unet-type-p128.png
+python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/38-T-left-corridor.png ~/RESTORATION/predict/38-T-left-corridor-p128-mask.png ~/RESTORATION/predict/38-T-left-corridor-p128-viz.png
+python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/downsampled/38-T-corbel_4xDownSampled.png ~/RESTORATION/predict/38-T-corbel-p128-mask.png
+python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/downsampled/38-T-right-corridor_4xDownSampled.png ~/RESTORATION/predict/38-T-right-corridor-p128-mask.png
+python ~/Pytorch-UNet/LargeImagePredictor.py ~/RESTORATION/downsampled/38-T-leftwall_4xDownSampled.png ~/RESTORATION/predict/38-T-leftwall-p128-mask.png

@@ -6,6 +6,7 @@ import torch
 import imgviz
 from tqdm import tqdm
 from typing import Tuple
+from unet import *
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -31,8 +32,7 @@ class LargeImagePredictor:
 	def __init__(
 			self,
 			model_path: str,
-			model_clases: int = 4,
-			using_se: str | bool = False,
+			model_classes: int = 4,
 			patch_size: int = 512,
 			padding: int = 32,
 			device: str = None
@@ -41,16 +41,15 @@ class LargeImagePredictor:
 		self.padding = padding
 		self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
-		self.model = self._load_model(model_path, model_clases, using_se)
+		self.model = self._load_model(model_path, model_classes)
 		self.model.to(self.device)
 		self.model.eval()
 
-	def _load_model(self, model_path: str, model_classes: int, using_se: str | bool):
+	def _load_model(self, model_path: str, model_classes: int):
 		state_dict = torch.load(model_path, map_location=self.device)
 		self.mask_values = state_dict.pop('mask_values')
 
-		from unet import UNet  # Import here to avoid circular import
-		model = UNet(3, model_classes, using_se)
+		model = UNetSE2(3, model_classes)
 		model.load_state_dict(state_dict)
 
 		print("Model loaded")
@@ -157,16 +156,15 @@ class LargeImagePredictor:
 
 if __name__ == "__main__":
 	predictor = LargeImagePredictor(
-		model_path="/home/ywh/Pytorch-UNet/checkpoint_20250706234427_m6tqqobs/checkpoint_epoch200.pth",
-		model_clases=7,
-		using_se=False,
-		patch_size=128,
-		padding=32
+		model_path="/home/ywh/Pytorch-UNet/checkpoint_20250710012041_9bv239uj/checkpoint_epoch200.pth",
+		model_classes=7,
+		patch_size=512,
+		padding=256
 	)
 
 	mask = predictor.predict(
 		image_path=sys.argv[1],
 		downsample_scale=1,
-		# vizout_path=f"/home/ywh/RESTORATION/{sys.argv[1]}-pred.png",
+		vizout_path=sys.argv[3] if len(sys.argv) > 3 else None,
 		maskout_path=sys.argv[2]
 	)
